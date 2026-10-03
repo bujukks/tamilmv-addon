@@ -1,0 +1,11 @@
+{
+  "functions": {
+    "api/index.js": { "maxDuration": 30 }
+  },
+  "rewrites": [
+    { "source": "/", "destination": "/api/index?r=manifest" },
+    { "source": "/manifest.json", "destination": "/api/index?r=manifest" },
+    { "source": "/catalog/:type/:id.json", "destination": "/api/index?r=catalog" },
+    { "source": "/catalog/:type/:id/:extra.json", "destination": "/api/index?r=catalog" }
+  ]
+}
