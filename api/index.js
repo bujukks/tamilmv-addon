@@ -1,19 +1,41 @@
 const cheerio = require("cheerio");
 
-// Each source becomes its own catalog row in Stremio.
-// To add another row, add another object here (id must be unique, no spaces).
-const SOURCES = [
-  {
-    id: "tamilmv-webhd",
-    name: "TamilMV - Latest WebHD",
-    url: "https://www.1tamilmv.capital/index.php?/forums/forum/11-web-hd-itunes-hd-bluray/&sortby=start_date&sortdirection=desc",
-  },
-  {
-    id: "tamilmv-hollywood",
-    name: "TamilMV - Hollywood Multi Audio",
-    url: "https://www.1tamilmv.capital/index.php?/forums/forum/17-hollywood-movies-in-multi-audios/&sortby=start_date&sortdirection=desc",
-  },
-];
+// Catalogs come from the SOURCE_URL env var (set in Vercel, no code edits needed).
+// Format: one catalog per line (or separated by ;), as   Name|URL
+// Example:
+//   WebHD|https://www.1tamilmv.capital/index.php?/forums/forum/11-web-hd-itunes-hd-bluray/&sortby=last_post&sortdirection=desc
+//   Hollywood|https://www.1tamilmv.capital/index.php?/forums/forum/17-hollywood-movies-in-multi-audios/&sortby=last_post&sortdirection=desc
+// "Name|" is optional; a bare URL gets an automatic name.
+const DEFAULT_SOURCES = [
+  "TamilMV - Latest WebHD|https://www.1tamilmv.capital/index.php?/forums/forum/11-web-hd-itunes-hd-bluray/&sortby=start_date&sortdirection=desc",
+  "TamilMV - Hollywood Multi Audio|https://www.1tamilmv.capital/index.php?/forums/forum/17-hollywood-movies-in-multi-audios/&sortby=start_date&sortdirection=desc",
+].join("\n");
+
+function parseSources(raw) {
+  const used = new Set();
+  return raw
+    .split(/[\n;]+/)
+    .map((x) => x.trim())
+    .filter(Boolean)
+    .map((entry, i) => {
+      const bar = entry.indexOf("|");
+      let name, url;
+      if (bar > 0 && !/^https?:/i.test(entry.slice(0, bar))) {
+        name = entry.slice(0, bar).trim();
+        url = entry.slice(bar + 1).trim();
+      } else {
+        url = entry;
+        name = `TamilMV Catalog ${i + 1}`;
+      }
+      let id = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "catalog-" + (i + 1);
+      if (used.has(id)) id += "-" + (i + 1);
+      used.add(id);
+      return { id, name, url };
+    })
+    .filter((x) => /^https?:\/\//i.test(x.url));
+}
+
+const SOURCES = parseSources(process.env.SOURCE_URL || DEFAULT_SOURCES);
 
 const UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
