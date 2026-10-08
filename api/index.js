@@ -6,12 +6,12 @@ const SOURCES = [
   {
     id: "tamilmv-webhd",
     name: "TamilMV - Latest WebHD",
-    url: "https://www.1tamilmv.capital/index.php?/forums/forum/11-web-hd-itunes-hd-bluray/&sortby=last_post&sortdirection=desc",
+    url: "https://www.1tamilmv.capital/index.php?/forums/forum/11-web-hd-itunes-hd-bluray/&sortby=start_date&sortdirection=desc",
   },
   {
     id: "tamilmv-hollywood",
     name: "TamilMV - Hollywood Multi Audio",
-    url: "https://www.1tamilmv.capital/index.php?/forums/forum/17-hollywood-movies-in-multi-audios/&sortby=last_post&sortdirection=desc",
+    url: "https://www.1tamilmv.capital/index.php?/forums/forum/17-hollywood-movies-in-multi-audios/&sortby=start_date&sortdirection=desc",
   },
 ];
 
