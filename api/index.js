@@ -3,12 +3,12 @@ const cheerio = require("cheerio");
 // Catalogs come from the SOURCE_URL env var (set in Vercel, no code edits needed).
 // Format: one catalog per line (or separated by ;), as   Name|URL
 // Example:
-//   WebHD|https://www.1tamilmv.capital/index.php?/forums/forum/11-web-hd-itunes-hd-bluray/&sortby=last_post&sortdirection=desc
-//   Hollywood|https://www.1tamilmv.capital/index.php?/forums/forum/17-hollywood-movies-in-multi-audios/&sortby=last_post&sortdirection=desc
+//   WebHD|https://1tamilmv.fi/index.php?/forums/forum/11-web-hd-itunes-hd-bluray/&sortby=last_post&sortdirection=desc
+//   Hollywood|https://1tamilmv.fi/index.php?/forums/forum/17-hollywood-movies-in-multi-audios/&sortby=last_post&sortdirection=desc
 // "Name|" is optional; a bare URL gets an automatic name.
 const DEFAULT_SOURCES = [
-  "TamilMV - Latest WebHD|https://www.1tamilmv.capital/index.php?/forums/forum/11-web-hd-itunes-hd-bluray/&sortby=start_date&sortdirection=desc",
-  "TamilMV - Hollywood Multi Audio|https://www.1tamilmv.capital/index.php?/forums/forum/17-hollywood-movies-in-multi-audios/&sortby=start_date&sortdirection=desc",
+  "TamilMV - Latest WebHD|https://1tamilmv.fi/index.php?/forums/forum/11-web-hd-itunes-hd-bluray/&sortby=last_post&sortdirection=desc",
+  "TamilMV - Hollywood Multi Audio|https://1tamilmv.fi/index.php?/forums/forum/17-hollywood-movies-in-multi-audios/&sortby=last_post&sortdirection=desc",
 ].join("\n");
 
 function parseSources(raw) {
@@ -95,9 +95,47 @@ async function resolveImdb({ title, year }) {
   return meta;
 }
 
-async function scrapeTopics(url) {
-  const r = await fetch(url, { headers: { "User-Agent": UA, Accept: "text/html" } });
-  if (!r.ok) throw new Error(`Source returned HTTP ${r.status}`);
+// Fallback "front door" domains, e.g. the permanent .fi address that redirects to
+// whichever domain is currently official. Comma-separated; override with FALLBACK_DOMAINS.
+const FALLBACK_DOMAINS = (process.env.FALLBACK_DOMAINS || "https://1tamilmv.fi")
+  .split(",")
+  .map((d) => d.trim())
+  .filter(Boolean)
+  .map((d) => (/^https?:\/\//i.test(d) ? d : "https://" + d));
+
+const originCache = new Map(); // fallback domain -> { origin, at }
+const ORIGIN_TTL_MS = 60 * 60 * 1000;
+
+// Follow the fallback domain's redirect and return the origin it lands on.
+async function discoverOrigin(front) {
+  const hit = originCache.get(front);
+  if (hit && Date.now() - hit.at < ORIGIN_TTL_MS) return hit.origin;
+  try {
+    const r = await fetch(front, { redirect: "follow", headers: { "User-Agent": UA, Accept: "text/html" } });
+    const origin = new URL(r.url).origin;
+    originCache.set(front, { origin, at: Date.now() });
+    return origin;
+  } catch (e) {
+    console.error(`Could not resolve ${front}: ${e.message}`);
+    return null;
+  }
+}
+
+async function fetchTopics(url) {
+  const headers = { "User-Agent": UA, Accept: "text/html" };
+  const want = new URL(url);
+  let r = await fetch(url, { headers });
+
+  // If we were redirected to a different domain (e.g. .fi -> current domain), the
+  // redirect often drops the forum path and sort options, so repeat them there.
+  const landed = new URL(r.url || url);
+  if (landed.origin !== want.origin) {
+    const retry = landed.origin + want.pathname + want.search;
+    console.error(`${want.origin} redirected to ${landed.href}; retrying ${retry}`);
+    r = await fetch(retry, { headers });
+  }
+
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
   const $ = cheerio.load(await r.text());
 
   let links = $(".ipsDataItem_title a[href*='/topic/']");
@@ -112,7 +150,38 @@ async function scrapeTopics(url) {
     const parsed = parseTitle($(el).text());
     if (parsed) out.push(parsed);
   });
+  if (!out.length) console.error(`0 titles parsed (${links.length} topic links). Page title: "${$("title").text().trim()}"`);
   return out;
+}
+
+// Try the configured URL first; if it fails or returns nothing, retry the same
+// path on each fallback domain's current (redirected) origin.
+async function scrapeTopics(url) {
+  const tried = new Set();
+  const attempt = async (u) => {
+    if (tried.has(u)) return null;
+    tried.add(u);
+    try {
+      const topics = await fetchTopics(u);
+      if (topics.length) return topics;
+      console.error(`No topics found at ${u}`);
+    } catch (e) {
+      console.error(`Fetch failed for ${u}: ${e.message}`);
+    }
+    return null;
+  };
+
+  let topics = await attempt(url);
+  if (topics) return topics;
+
+  const parsed = new URL(url);
+  for (const front of FALLBACK_DOMAINS) {
+    const origin = await discoverOrigin(front);
+    if (!origin) continue;
+    topics = await attempt(origin + parsed.pathname + parsed.search);
+    if (topics) return topics;
+  }
+  throw new Error("All domains failed");
 }
 
 const catalogCache = {}; // per-source cache
